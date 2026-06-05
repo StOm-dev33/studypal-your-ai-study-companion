@@ -16,10 +16,25 @@ export const Route = createFileRoute("/upload")({
   component: Upload,
 });
 
-const TERTIARY_FALLBACK = ["Foundations & vocabulary", "Core concepts in plain language", "Worked example: real exam question", "Common mistakes to avoid", "Quick recap & retention check"];
-const SECONDARY_FALLBACK = ["Key definitions & terms", "Common JAMB/WAEC question patterns", "Past question walkthrough", "Tricky areas to watch", "Final revision checklist"];
-
+const TERTIARY_FALLBACK = [
+  "Foundations & vocabulary",
+  "Core concepts in plain language",
+  "Worked example: real exam question",
+  "Common mistakes to avoid",
+  "Quick recap & retention check",
+];
+const SECONDARY_FALLBACK = [
+  "Key definitions & terms",
+  "Common JAMB/WAEC question patterns",
+  "Past question walkthrough",
+  "Tricky areas to watch",
+  "Final revision checklist",
+];
 const EXAM_PILLS = ["JAMB", "WAEC", "NECO", "POST-UTME", "GCE"];
+type StructureResponse = { topics?: string[] };
+type IngestResponse = { ok: boolean; chunkCount?: number; reason?: string; truncated?: boolean };
+// Keep titles short so cards stay readable and DB rows remain lightweight.
+const MAX_MATERIAL_TITLE_LENGTH = 120;
 
 function Upload() {
   const nav = useNavigate();
@@ -53,27 +68,25 @@ function Upload() {
 
       const nextCourses = (data ?? []) as Array<{ id: string; name: string }>;
       setCourses(nextCourses);
-      if (nextCourses.length && !selectedCourseId) {
-        setSelectedCourseId(nextCourses[0].id);
-      }
+      setSelectedCourseId((prev) => prev || nextCourses[0]?.id || "");
     }
     void loadCourses();
-  }, [selectedCourseId]);
+  }, []);
 
   async function structure() {
     setStatus("thinking");
     const fallback = isTertiary ? TERTIARY_FALLBACK : SECONDARY_FALLBACK;
     const examContext = isTertiary ? "" : `This is for ${selectedExam} exam preparation.`;
     try {
-      const r = await structureNotes({
+      const r = (await structureNotes({
         data: {
           prompt: `Structure these notes into 5–7 ordered lesson topics. ${examContext} Subject: ${subject}. Notes: ${notes.slice(0, 4000)}`,
           schemaHint: isTertiary
             ? "Return { topics: string[] } — academic, conceptual topics suitable for university level"
             : "Return { topics: string[] } — exam-focused revision topics, each likely to appear in JAMB or WAEC",
         },
-      });
-      setTopics(Array.isArray((r as any).topics) ? (r as any).topics : fallback);
+      })) as StructureResponse;
+      setTopics(Array.isArray(r.topics) ? r.topics : fallback);
     } catch {
       setTopics(fallback);
     }
@@ -109,24 +122,28 @@ function Upload() {
     setIngestStatus("saving");
     setIngestMessage("");
 
-    const res = await ingestMaterial({
+    const materialTitle =
+      [subject.trim(), file?.name].filter(Boolean).join(" - ") || "Uploaded material";
+
+    const res = (await ingestMaterial({
       data: {
         accessToken: token,
         courseId: selectedCourseId,
-        title: (file?.name || subject || "Uploaded material").slice(0, 120),
+        title: materialTitle.slice(0, MAX_MATERIAL_TITLE_LENGTH),
         text: materialText,
-        sourceType: file?.type?.includes("pdf") ? "pdf" : notes.trim() ? "notes" : "text",
+        sourceType: file ? (file.type?.includes("pdf") ? "pdf" : "text") : "notes",
       },
-    });
+    })) as IngestResponse;
 
-    if ((res as any).ok) {
+    if (res.ok) {
       setIngestStatus("done");
-      setIngestMessage(`Material ingested (${(res as any).chunkCount} chunks).`);
+      const suffix = res.truncated ? " Input was truncated to supported ingest size." : "";
+      setIngestMessage(`Material ingested (${res.chunkCount ?? 0} chunks).${suffix}`);
       return;
     }
 
     setIngestStatus("error");
-    setIngestMessage((res as any).reason ?? "Material ingestion failed.");
+    setIngestMessage(res.reason ?? "Material ingestion failed.");
   }
 
   return (
@@ -149,24 +166,46 @@ function Upload() {
         </div>
 
         <div
-          onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDrag(true);
+          }}
           onDragLeave={() => setDrag(false)}
-          onDrop={(e) => { e.preventDefault(); setDrag(false); setFile(e.dataTransfer.files?.[0] ?? null); }}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDrag(false);
+            setFile(e.dataTransfer.files?.[0] ?? null);
+          }}
           className={`rounded-3xl border-2 border-dashed bg-card p-10 text-center transition ${drag ? "border-accent bg-accent/5" : "border-border"}`}
         >
           <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-accent text-accent-foreground">
-            <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <svg
+              viewBox="0 0 24 24"
+              className="h-6 w-6"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
               <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
               <path d="M14 2v6h6M12 18v-6M9 15l3-3 3 3" />
             </svg>
           </div>
           <div className="mt-4 font-display text-xl">{file ? file.name : "Drag a PDF here"}</div>
           <p className="mt-1 text-sm text-muted-foreground">
-            {isTertiary ? "or paste your lecture notes below" : "or paste your past questions below"}
+            {isTertiary
+              ? "or paste your lecture notes below"
+              : "or paste your past questions below"}
           </p>
           <label className="btn-press mt-5 inline-flex cursor-pointer rounded-full border border-border bg-background px-4 py-2 text-sm">
             Choose a file
-            <input type="file" accept=".pdf,.txt,.md,.docx" hidden onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+            <input
+              type="file"
+              accept=".pdf,.txt,.md,.docx"
+              hidden
+              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            />
           </label>
         </div>
 
@@ -201,7 +240,11 @@ function Upload() {
             <input
               value={subject}
               onChange={(e) => setSubject(e.target.value)}
-              placeholder={isTertiary ? "e.g. Organic Chemistry, Business Law" : "e.g. Biology, Mathematics, Literature"}
+              placeholder={
+                isTertiary
+                  ? "e.g. Organic Chemistry, Business Law"
+                  : "e.g. Biology, Mathematics, Literature"
+              }
               className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 text-sm outline-none focus:border-accent focus:ring-2 focus:ring-accent/30"
             />
           </div>
@@ -231,7 +274,11 @@ function Upload() {
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             rows={8}
-            placeholder={isTertiary ? "Paste raw lecture notes here..." : "Paste past questions or revision notes here..."}
+            placeholder={
+              isTertiary
+                ? "Paste raw lecture notes here..."
+                : "Paste past questions or revision notes here..."
+            }
             className="w-full resize-none rounded-xl border border-border bg-background px-4 py-3 text-sm outline-none focus:border-accent focus:ring-2 focus:ring-accent/30"
           />
           <button
@@ -239,7 +286,11 @@ function Upload() {
             disabled={!subject || (!notes && !file) || status === "thinking"}
             className="btn-press w-full rounded-xl bg-accent py-3 text-sm font-medium text-accent-foreground disabled:opacity-50"
           >
-            {status === "thinking" ? "Structuring..." : isTertiary ? "Structure My Notes →" : "Build My Revision Plan →"}
+            {status === "thinking"
+              ? "Structuring..."
+              : isTertiary
+                ? "Structure My Notes →"
+                : "Build My Revision Plan →"}
           </button>
           <button
             onClick={saveMaterialForRag}
@@ -249,7 +300,9 @@ function Upload() {
             {ingestStatus === "saving" ? "Saving to RAG..." : "Save material to course memory"}
           </button>
           {ingestMessage && (
-            <p className={`text-sm ${ingestStatus === "error" ? "text-red-500" : "text-muted-foreground"}`}>
+            <p
+              className={`text-sm ${ingestStatus === "error" ? "text-red-500" : "text-muted-foreground"}`}
+            >
               {ingestMessage}
             </p>
           )}
@@ -257,11 +310,17 @@ function Upload() {
 
         <AnimatePresence>
           {status === "thinking" && (
-            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-              className="rounded-3xl border border-border bg-card p-8 text-center">
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              className="rounded-3xl border border-border bg-card p-8 text-center"
+            >
               <div className="mx-auto h-3 w-3 animate-ping rounded-full bg-accent" />
               <div className="mt-4 font-display text-lg">
-                {isTertiary ? "AI is organizing your content..." : "AI is identifying exam patterns..."}
+                {isTertiary
+                  ? "AI is organizing your content..."
+                  : "AI is identifying exam patterns..."}
               </div>
               <div className="mt-1 font-mono text-xs uppercase tracking-widest text-muted-foreground">
                 Groq · Aethex · streaming
@@ -270,8 +329,11 @@ function Upload() {
           )}
 
           {status === "ready" && (
-            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
-              className="rounded-3xl border border-border bg-card p-6">
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="rounded-3xl border border-border bg-card p-6"
+            >
               <div className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
                 {isTertiary ? "Lesson plan preview" : "Revision plan preview"}
               </div>

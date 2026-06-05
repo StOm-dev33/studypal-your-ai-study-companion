@@ -4,9 +4,14 @@ type ChunkOptions = {
   maxChunks?: number;
 };
 
+const MIN_BREAKPOINT_RATIO = 0.5;
+const DEFAULT_CHUNK_SIZE = 900;
+const DEFAULT_CHUNK_OVERLAP = 180;
+const DEFAULT_MAX_CHUNKS = 500;
+
 export function cleanMaterialText(input: string): string {
   return input
-    .replace(/\u0000/g, "")
+    .replaceAll("\0", "")
     .replace(/[^\S\r\n]+/g, " ")
     .replace(/\r/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
@@ -14,9 +19,10 @@ export function cleanMaterialText(input: string): string {
 }
 
 export function chunkMaterialText(input: string, options: ChunkOptions = {}): string[] {
-  const chunkSize = options.chunkSize ?? 900;
-  const overlap = options.overlap ?? 180;
-  const maxChunks = options.maxChunks ?? 500;
+  // Defaults target retrieval-quality chunks with enough overlap for context continuity.
+  const chunkSize = options.chunkSize ?? DEFAULT_CHUNK_SIZE;
+  const overlap = options.overlap ?? DEFAULT_CHUNK_OVERLAP;
+  const maxChunks = options.maxChunks ?? DEFAULT_MAX_CHUNKS;
   const text = cleanMaterialText(input);
 
   if (!text) return [];
@@ -26,6 +32,7 @@ export function chunkMaterialText(input: string, options: ChunkOptions = {}): st
 
   while (cursor < text.length && chunks.length < maxChunks) {
     const maxEnd = Math.min(cursor + chunkSize, text.length);
+    const minChunkSize = Math.floor(chunkSize * MIN_BREAKPOINT_RATIO);
     let end = maxEnd;
 
     if (maxEnd < text.length) {
@@ -34,7 +41,8 @@ export function chunkMaterialText(input: string, options: ChunkOptions = {}): st
       const lineBreak = text.lastIndexOf("\n", maxEnd);
 
       const bestBreak = [paragraphBreak, sentenceBreak, lineBreak]
-        .filter((point) => point > cursor + Math.floor(chunkSize * 0.5))
+        // Keep each chunk at least MIN_BREAKPOINT_RATIO (50%) of target size.
+        .filter((point) => point > cursor + minChunkSize)
         .sort((a, b) => b - a)[0];
 
       if (bestBreak) {

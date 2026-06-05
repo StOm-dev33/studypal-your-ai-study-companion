@@ -12,6 +12,8 @@ type Course = {
   created_at: string;
 };
 
+const COURSE_CONTAINER_PLACEHOLDERS = ["materials", "lessons", "quizzes", "notes", "progress"];
+
 export const Route = createFileRoute("/courses")({
   ssr: false,
   head: () => ({ meta: [{ title: "Courses — StudyPal" }] }),
@@ -95,7 +97,10 @@ function CoursesPage() {
     const q = search.trim().toLowerCase();
     if (!q) return courses;
     return courses.filter((course) =>
-      [course.name, course.code ?? "", course.description ?? ""].join(" ").toLowerCase().includes(q),
+      [course.name, course.code ?? "", course.description ?? ""]
+        .join(" ")
+        .toLowerCase()
+        .includes(q),
     );
   }, [courses, search]);
 
@@ -103,10 +108,13 @@ function CoursesPage() {
     <AppShell>
       <div className="mx-auto max-w-6xl space-y-6 p-5 md:p-8">
         <section className="space-y-2">
-          <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">COURSES</p>
+          <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
+            COURSES
+          </p>
           <h1 className="font-display text-3xl md:text-4xl">Course Library</h1>
           <p className="text-sm text-muted-foreground">
-            Create, organize, and search your course containers for materials, lessons, quizzes, notes, and progress.
+            Create, organize, and search your course containers for materials, lessons, quizzes,
+            notes, and progress.
           </p>
         </section>
 
@@ -155,7 +163,9 @@ function CoursesPage() {
           </div>
 
           {loading ? (
-            <div className="rounded-2xl border border-border bg-card p-6 text-sm text-muted-foreground">Loading courses...</div>
+            <div className="rounded-2xl border border-border bg-card p-6 text-sm text-muted-foreground">
+              Loading courses...
+            </div>
           ) : filteredCourses.length === 0 ? (
             <div className="rounded-2xl border border-border bg-card p-6 text-sm text-muted-foreground">
               No courses found yet. Create your first course above.
@@ -163,23 +173,38 @@ function CoursesPage() {
           ) : (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {filteredCourses.map((course) => (
-                <article key={course.id} className="space-y-4 rounded-2xl border border-border bg-card p-5">
+                <article
+                  key={course.id}
+                  className="space-y-4 rounded-2xl border border-border bg-card p-5"
+                >
                   <div className="space-y-1">
                     <h3 className="font-display text-xl">{course.name}</h3>
                     {course.code && (
-                      <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">{course.code}</p>
+                      <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
+                        {course.code}
+                      </p>
                     )}
-                    <p className="text-sm text-muted-foreground">{course.description || "No description yet."}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {course.description || "No description yet."}
+                    </p>
                   </div>
 
                   <div className="grid grid-cols-2 gap-2 text-xs">
-                    {["materials", "lessons", "quizzes", "notes", "progress"].map((item) => (
-                      <div key={item} className="rounded-lg border border-border bg-background px-2 py-2">
-                        <span className="font-mono uppercase tracking-widest text-muted-foreground">{item}</span>
+                    {COURSE_CONTAINER_PLACEHOLDERS.map((item) => (
+                      <div
+                        key={item}
+                        className="rounded-lg border border-border bg-background px-2 py-2"
+                      >
+                        <span className="font-mono uppercase tracking-widest text-muted-foreground">
+                          {item}
+                        </span>
                         <div className="mt-1 font-display text-lg">0</div>
                       </div>
                     ))}
                   </div>
+                  <p className="text-xs text-muted-foreground">
+                    Counts will populate as course workspace data is added.
+                  </p>
 
                   <Link
                     to="/upload"

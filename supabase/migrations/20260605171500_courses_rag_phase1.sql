@@ -27,6 +27,7 @@ create table if not exists public.course_material_chunks (
   material_id uuid not null references public.course_materials(id) on delete cascade,
   chunk_index integer not null check (chunk_index >= 0),
   chunk_text text not null check (length(trim(chunk_text)) > 0),
+  -- 1536 dimensions align with OpenAI-compatible embedding models (for example text-embedding-3-small).
   embedding vector(1536),
   metadata jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now()

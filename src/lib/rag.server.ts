@@ -11,6 +11,10 @@ type IngestInput = {
   sourceType?: "pdf" | "notes" | "text" | "unknown";
 };
 
+// Limit processing size to avoid very long ingest requests causing timeouts or heavy DB writes.
+const MAX_INGEST_TEXT_CHARS = 200_000;
+const CHUNK_INSERT_BATCH_SIZE = 100;
+
 export const ingestCourseMaterial = createServerFn()
   .inputValidator((data: IngestInput) => data)
   .handler(async ({ data }) => {
@@ -32,7 +36,11 @@ export const ingestCourseMaterial = createServerFn()
     }
 
     const userId = authData.user.id;
-    const cleanedText = cleanMaterialText(data.text).slice(0, 200_000);
+    // Cap ingest size to keep chunk generation and DB writes bounded for server latency
+    // while still allowing large lecture uploads in a single request.
+    const normalizedText = cleanMaterialText(data.text);
+    const truncated = normalizedText.length > MAX_INGEST_TEXT_CHARS;
+    const cleanedText = normalizedText.slice(0, MAX_INGEST_TEXT_CHARS);
     const chunks = chunkMaterialText(cleanedText);
 
     if (!chunks.length) {
@@ -75,9 +83,9 @@ export const ingestCourseMaterial = createServerFn()
       metadata: { source_type: data.sourceType ?? "unknown" },
     }));
 
-    const batchSize = 100;
-    for (let i = 0; i < rows.length; i += batchSize) {
-      const batch = rows.slice(i, i + batchSize);
+    // Insert in smaller batches to keep payload size stable for Supabase inserts.
+    for (let i = 0; i < rows.length; i += CHUNK_INSERT_BATCH_SIZE) {
+      const batch = rows.slice(i, i + CHUNK_INSERT_BATCH_SIZE);
       const { error } = await adminClient.from("course_material_chunks").insert(batch);
       if (error) {
         return { ok: false, reason: "Failed to store one or more chunks." };
@@ -88,5 +96,6 @@ export const ingestCourseMaterial = createServerFn()
       ok: true,
       materialId: material.id,
       chunkCount: rows.length,
+      truncated,
     };
   });
