@@ -1,11 +1,13 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { motion, AnimatePresence } from "framer-motion";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AppShell } from "@/components/sp/AppShell";
 import { groqStructured } from "@/lib/groq";
 import { useProfile } from "@/hooks/useProfile";
 import { requireAuth } from "@/lib/guards";
+import { supabase } from "@/lib/supabase";
+import { ingestCourseMaterial } from "@/lib/rag.server";
 
 export const Route = createFileRoute("/upload")({
   ssr: false,
@@ -23,15 +25,40 @@ function Upload() {
   const nav = useNavigate();
   const { profile } = useProfile();
   const structureNotes = useServerFn(groqStructured);
+  const ingestMaterial = useServerFn(ingestCourseMaterial);
   const [subject, setSubject] = useState("");
   const [notes, setNotes] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [drag, setDrag] = useState(false);
   const [status, setStatus] = useState<"idle" | "thinking" | "ready">("idle");
+  const [ingestStatus, setIngestStatus] = useState<"idle" | "saving" | "done" | "error">("idle");
+  const [ingestMessage, setIngestMessage] = useState("");
   const [topics, setTopics] = useState<string[]>([]);
   const [selectedExam, setSelectedExam] = useState("JAMB");
+  const [selectedCourseId, setSelectedCourseId] = useState("");
+  const [courses, setCourses] = useState<Array<{ id: string; name: string }>>([]);
 
   const isTertiary = profile?.user_type === "tertiary";
+
+  useEffect(() => {
+    async function loadCourses() {
+      const { data: authData } = await supabase.auth.getUser();
+      if (!authData.user) return;
+
+      const { data } = await supabase
+        .from("courses")
+        .select("id, name")
+        .eq("user_id", authData.user.id)
+        .order("created_at", { ascending: false });
+
+      const nextCourses = (data ?? []) as Array<{ id: string; name: string }>;
+      setCourses(nextCourses);
+      if (nextCourses.length && !selectedCourseId) {
+        setSelectedCourseId(nextCourses[0].id);
+      }
+    }
+    void loadCourses();
+  }, [selectedCourseId]);
 
   async function structure() {
     setStatus("thinking");
@@ -51,6 +78,55 @@ function Upload() {
       setTopics(fallback);
     }
     setTimeout(() => setStatus("ready"), 800);
+  }
+
+  async function saveMaterialForRag() {
+    if (!selectedCourseId) {
+      setIngestStatus("error");
+      setIngestMessage("Select a course first.");
+      return;
+    }
+
+    let materialText = notes;
+    if (!materialText.trim() && file) {
+      materialText = await file.text();
+    }
+
+    if (!materialText.trim()) {
+      setIngestStatus("error");
+      setIngestMessage("Add text or a readable file first.");
+      return;
+    }
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+    if (!token) {
+      setIngestStatus("error");
+      setIngestMessage("Please sign in again.");
+      return;
+    }
+
+    setIngestStatus("saving");
+    setIngestMessage("");
+
+    const res = await ingestMaterial({
+      data: {
+        accessToken: token,
+        courseId: selectedCourseId,
+        title: (file?.name || subject || "Uploaded material").slice(0, 120),
+        text: materialText,
+        sourceType: file?.type?.includes("pdf") ? "pdf" : notes.trim() ? "notes" : "text",
+      },
+    });
+
+    if ((res as any).ok) {
+      setIngestStatus("done");
+      setIngestMessage(`Material ingested (${(res as any).chunkCount} chunks).`);
+      return;
+    }
+
+    setIngestStatus("error");
+    setIngestMessage((res as any).reason ?? "Material ingestion failed.");
   }
 
   return (
@@ -95,6 +171,29 @@ function Upload() {
         </div>
 
         <div className="space-y-4 rounded-3xl border border-border bg-card p-6">
+          <div>
+            <label className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+              Course
+            </label>
+            <select
+              value={selectedCourseId}
+              onChange={(e) => setSelectedCourseId(e.target.value)}
+              className="mt-2 w-full rounded-xl border border-border bg-background px-4 py-3 text-sm outline-none focus:border-accent focus:ring-2 focus:ring-accent/30"
+            >
+              <option value="">Select a course</option>
+              {courses.map((course) => (
+                <option key={course.id} value={course.id}>
+                  {course.name}
+                </option>
+              ))}
+            </select>
+            {!courses.length && (
+              <p className="mt-2 text-xs text-muted-foreground">
+                No courses yet. Create one first in Course Library.
+              </p>
+            )}
+          </div>
+
           <div>
             <label className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
               {isTertiary ? "Course / Subject" : "Subject"}
@@ -142,6 +241,18 @@ function Upload() {
           >
             {status === "thinking" ? "Structuring..." : isTertiary ? "Structure My Notes →" : "Build My Revision Plan →"}
           </button>
+          <button
+            onClick={saveMaterialForRag}
+            disabled={!selectedCourseId || (!notes && !file) || ingestStatus === "saving"}
+            className="btn-press w-full rounded-xl border border-border py-3 text-sm font-medium disabled:opacity-50"
+          >
+            {ingestStatus === "saving" ? "Saving to RAG..." : "Save material to course memory"}
+          </button>
+          {ingestMessage && (
+            <p className={`text-sm ${ingestStatus === "error" ? "text-red-500" : "text-muted-foreground"}`}>
+              {ingestMessage}
+            </p>
+          )}
         </div>
 
         <AnimatePresence>

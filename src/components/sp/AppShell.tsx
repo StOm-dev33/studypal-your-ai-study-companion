@@ -6,7 +6,7 @@ import { supabase } from "@/lib/supabase";
 
 const nav = [
   { to: "/dashboard", label: "Dashboard", icon: "M3 12 12 3l9 9M5 10v10h14V10" },
-  { to: "/upload", label: "My Lessons", icon: "M4 4h16v16H4zM4 9h16M9 4v16" },
+  { to: "/courses", label: "Courses", icon: "M4 4h16v16H4zM4 9h16M9 4v16" },
   { to: "/session", label: "Study", icon: "M5 3v18l7-4 7 4V3z" },
   { to: "/community", label: "Community", icon: "M17 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8M23 21v-2a4 4 0 0 0-3-3.87M17 3.13A4 4 0 0 1 17 11" },
 ];
